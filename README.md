@@ -82,7 +82,159 @@ User-flow для сотрудника ресепшена
 
 ### Безопасность
 
-Описать подходы, использованные для обеспечения безопасности, включая описание процессов аутентификации и авторизации с примерами кода из репозитория сервера
+Система Planora использует многоуровневый подход к безопасности: безопасное хранение паролей, аутентификацию на основе OAuth2 и JWT, ролевую авторизацию и защиту API на уровне FastAPI.
+
+#### Аутентификация и хранение паролей
+
+Пароли пользователей никогда не хранятся в открытом виде. На сервере используется библиотека `passlib` с алгоритмом `bcrypt`: при регистрации пароль хэшируется, при входе сравнивается введённое значение с хэшем.
+
+```python
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
+
+def get_password_hash(password: str) -> str:
+    return pwd_context.hash(password)
+```
+
+При создании пользователя в базу записывается только хэш пароля:
+
+```python
+from .security.passwords import get_password_hash
+from .models.users import User
+from .schemas.users import UserCreate
+
+def create_user(db, user_in: UserCreate) -> User:
+    db_user = User(
+        email=user_in.email,
+        full_name=user_in.full_name,
+        hashed_password=get_password_hash(user_in.password),
+        role=user_in.role,
+    )
+    db.add(db_user)
+    db.commit()
+    db.refresh(db_user)
+    return db_user
+```
+
+#### JWT–токены и вход в систему
+
+Аутентификация построена на схеме OAuth2 с выдачей access–токена в формате JWT. Токен содержит идентификатор пользователя и его роль и имеет ограниченный срок жизни.
+
+```python
+from datetime import datetime, timedelta
+from jose import jwt
+from pydantic import BaseModel
+
+SECRET_KEY = "change-me"
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+class TokenData(BaseModel):
+    user_id: str | None = None
+    role: str | None = None
+
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
+    to_encode = data.copy()
+    expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+```
+
+Эндпоинт `/auth/token` принимает логин и пароль, проверяет учётные данные и возвращает JWT–токен:
+
+```python
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordRequestForm
+from .security.tokens import create_access_token
+from .security.passwords import verify_password
+from .models.users import User
+from .dependencies import get_db
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+@router.post("/token")
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db=Depends(get_db)):
+    user: User | None = db.query(User).filter(User.email == form_data.username).first()
+    if user is None or not verify_password(form_data.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Неверный логин или пароль",
+        )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Учётная запись заблокирована",
+        )
+    access_token = create_access_token({"sub": user.id, "role": user.role})
+    return {"access_token": access_token, "token_type": "bearer"}
+```
+
+#### Ролевая авторизация и защита эндпоинтов
+
+Поверх аутентификации реализовано разграничение доступа по ролям: `admin`, `coordinator`, `attendee`, `reception`. Для этого используется зависимость `get_current_user` и обёртка `require_role`.
+
+```python
+from fastapi import Depends, HTTPException, status
+from fastapi.security import OAuth2PasswordBearer
+from .tokens import decode_token
+from .models.users import User
+from .dependencies import get_db
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
+
+async def get_current_user(token: str = Depends(oauth2_scheme), db=Depends(get_db)) -> User:
+    token_data = decode_token(token)
+    if token_data.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Не удалось проверить токен",
+        )
+    user = db.query(User).get(token_data.user_id)
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Пользователь не найден или заблокирован",
+        )
+    return user
+```
+
+```python
+from fastapi import Depends, HTTPException, status
+from .deps import get_current_user
+from .models.users import User
+
+def require_role(allowed_roles: list[str]):
+    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Недостаточно прав для выполнения операции",
+            )
+        return current_user
+    return role_checker
+```
+
+Пример защиты доменных эндпоинтов:
+
+```python
+from fastapi import APIRouter, Depends
+from .security.roles import require_role
+from .models.users import User
+
+router = APIRouter(prefix="/events", tags=["events"])
+
+@router.get("/", dependencies=[Depends(require_role(["coordinator", "admin"]))])
+def list_events(current_user: User = Depends(require_role(["coordinator", "admin"]))):
+    ...
+
+@router.post("/{event_id}/checkin", dependencies=[Depends(require_role(["coordinator", "reception"]))])
+def checkin_guest(event_id: str, current_user: User = Depends(require_role(["coordinator", "reception"]))):
+    ...
+```
 
 ### Оценка качества кода
 
