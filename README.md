@@ -258,11 +258,257 @@ def checkin_guest(event_id: str, current_user: User = Depends(require_role(["coo
 
 ### Манифесты для сборки docker образов
 
-Представить весь код манифестов или ссылки на файлы с ними (при необходимости снабдить комментариями)
+Для развертывания Planora используется Docker и Docker Compose.
+
+Ниже приведён основной `docker-compose.yml`, который поднимает PostgreSQL, backend и frontend:
+
+```yaml
+version: '3.9'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: planora_db
+    environment:
+      POSTGRES_DB: planora
+      POSTGRES_USER: planora_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    ports:
+      - '5432:5432'
+    networks:
+      - planora_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: planora_backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://planora_user:${POSTGRES_PASSWORD}@db:5432/planora
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY}
+      JWT_ALGORITHM: HS256
+    depends_on:
+      - db
+    ports:
+      - '8000:8000'
+    networks:
+      - planora_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: planora_frontend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - '5173:5173'
+    networks:
+      - planora_network
+
+volumes:
+  db_data:
+
+networks:
+  planora_network:
+    driver: bridge
+```
+
+Манифест сборки backend образа:
+
+```dockerfile
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+COPY backend/requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+FROM python:3.11-slim
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1
+
+RUN useradd -m -u 1000 planora && mkdir -p /app && chown -R planora:planora /app
+USER planora
+WORKDIR /app
+
+COPY --from=builder /opt/venv /opt/venv
+COPY backend/ /app/
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+Манифест сборки frontend образа:
+
+```dockerfile
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+
+COPY frontend/ ./
+
+EXPOSE 5173
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+```
 
 ### Манифесты для развертывания k8s кластера
 
-Представить весь код манифестов или ссылки на файлы с ними (при необходимости снабдить комментариями)
+Для развёртывания Planora в Kubernetes можно использовать отдельный набор манифестов.
+
+Ниже приведён пример содержимого этих манифестов.
+
+`k8s/postgres.yml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: planora-postgres
+spec:
+  selector:
+    app: planora-postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planora-postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: planora-postgres
+  template:
+    metadata:
+      labels:
+        app: planora-postgres
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          env:
+            - name: POSTGRES_DB
+              value: 'planora'
+            - name: POSTGRES_USER
+              value: 'planora_user'
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: planora-secrets
+                  key: POSTGRES_PASSWORD
+          ports:
+            - containerPort: 5432
+```
+
+`k8s/backend.yml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: planora-backend
+spec:
+  selector:
+    app: planora-backend
+  ports:
+    - port: 8000
+      targetPort: 8000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planora-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: planora-backend
+  template:
+    metadata:
+      labels:
+        app: planora-backend
+    spec:
+      containers:
+        - name: backend
+          image: planora-backend:latest
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: planora-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: planora-secrets
+                  key: JWT_SECRET_KEY
+            - name: JWT_ALGORITHM
+              value: 'HS256'
+          ports:
+            - containerPort: 8000
+```
+
+`k8s/frontend.yml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: planora-frontend
+spec:
+  type: LoadBalancer
+  selector:
+    app: planora-frontend
+  ports:
+    - port: 80
+      targetPort: 5173
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: planora-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: planora-frontend
+  template:
+    metadata:
+      labels:
+        app: planora-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: planora-frontend:latest
+          env:
+            - name: VITE_API_BASE_URL
+              value: 'http://planora-backend:8000'
+          ports:
+            - containerPort: 5173
+```
 
 ---
 
