@@ -1,0 +1,197 @@
+:root {
+  --planora-primary: #05a5a6;
+  --planora-primary-soft: #f2ffff;
+  --planora-dark: #00191a;
+  --planora-gray-700: #313d3d;
+  --planora-gray-500: #a5b6b6;
+  --planora-danger: #d9534f;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  color: var(--planora-dark);
+}
+
+.app-header {
+  box-shadow: 0 6px 20px rgba(0, 25, 26, 0.08);
+}
+
+.planora-logo {
+  width: 44px;
+  height: 44px;
+}
+
+.avatar-circle {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--planora-primary);
+  background: var(--planora-primary-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--planora-primary);
+}
+
+.event-card-btn {
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.event-card-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 40px rgba(0, 25, 26, 0.16);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  gap: 6px;
+}
+
+.pill-label {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.pill-value {
+  font-weight: 600;
+}
+
+.pill-accent {
+  background: var(--planora-primary-soft);
+  color: var(--planora-primary);
+}
+
+.pill-neutral {
+  background: #eef3f3;
+  color: var(--planora-gray-700);
+}
+
+.pill-danger {
+  background: #ffe7e5;
+  color: var(--planora-danger);
+}
+
+.rsvp-tile {
+  border-radius: 16px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.rsvp-label {
+  color: var(--planora-gray-500);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rsvp-value {
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.rsvp-accent {
+  background: var(--planora-primary-soft);
+  color: var(--planora-primary);
+}
+
+.rsvp-neutral {
+  background: #eef3f3;
+  color: var(--planora-gray-700);
+}
+
+.rsvp-danger {
+  background: #ffe7e5;
+  color: var(--planora-danger);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.status-accepted {
+  background: var(--planora-primary-soft);
+  color: var(--planora-primary);
+}
+
+.status-pending {
+  background: #eef3f3;
+  color: var(--planora-gray-700);
+}
+
+.status-declined {
+  background: #ffe7e5;
+  color: var(--planora-danger);
+}
+
+.hero-section {
+  padding: 40px 0 32px;
+}
+
+.hero-title {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.hero-subtitle {
+  font-size: 15px;
+  color: var(--planora-gray-700);
+  max-width: 520px;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--planora-primary-soft);
+  color: var(--planora-primary);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.hero-card {
+  border-radius: 20px;
+  padding: 20px 22px;
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(0, 25, 26, 0.16);
+}
+
+.hero-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.hero-card-title {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--planora-gray-500);
+}
+
+.hero-card-body {
+  font-size: 14px;
+}
+
+.hero-card-footer {
+  border-top: 1px solid rgba(0, 25, 26, 0.06);
+  padding-top: 8px;
+}
