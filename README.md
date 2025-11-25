@@ -279,13 +279,119 @@ pylint app              # статический анализ
 
 ## **Тестирование**
 
-### Unit-тесты
+Разработка unit- и интеграционных тестов выполнена в рамках лабораторной работы №5. Для тестирования используется библиотека **Pytest**, плагин **pytest–cov** и тестовый клиент FastAPI `TestClient`.
 
-Представить код тестов для пяти методов и его пояснение
+Запуск полного набора тестов с измерением покрытия кода выполняется командой:
+
+```bash
+python -m pytest --cov=app --cov-report=term-missing
+```
+
+По итогам прогона тестов суммарное покрытие пакета `app` составляет **96 %**. Основные модули (модели, схемы и маршрутизаторы пользователей, событий и RSVP) имеют покрытие не ниже 93–100 %, непокрытыми остаются только вспомогательные участки кода и редкие ветви обработки ошибок.
+
+### Unit–тесты
+
+Unit–тесты сгруппированы по доменным сущностям и размещены в каталоге `__tests__`:
+
+- `test_users_api.py` – проверки операций создания, получения, обновления и удаления пользователей;
+- `test_events_api.py` – проверки операций над событиями и базовой статистики по RSVP;
+- `test_rsvp_api.py` – проверки сценариев установки и чтения RSVP–откликов.
+
+Тестовая среда настраивается в файле `__tests__/conftest.py`:
+
+- создаётся отдельная база данных SQLite и тестовый SQLAlchemy–двигатель;
+- выполняется пересоздание таблиц по `Base.metadata` для тестовой БД;
+- стандартная зависимость `get_db` переопределяется функцией `override_get_db`, возвращающей тестовую сессию;
+- через `TestClient` выполняются HTTP–запросы к приложению без запуска реального сервера.
+
+Пример unit–теста для создания и получения пользователя:
+
+```python
+from http import HTTPStatus
+from starlette.testclient import TestClient
+
+def test_create_and_get_user(client: TestClient) -> None:
+    payload = {
+        "name": "Test User",
+        "email": "user@example.com",
+        "role": "attendee",
+        "status": "active",
+    }
+
+    response_create = client.post("/api/admin/users", json=payload)
+    assert response_create.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+    created = response_create.json()
+    user_id = created["id"]
+
+    assert created["name"] == payload["name"]
+    assert created["email"] == payload["email"]
+    assert created["role"] == payload["role"]
+    assert created["status"] == payload["status"]
+
+    response_get = client.get(f"/api/admin/users/{user_id}")
+    assert response_get.status_code == HTTPStatus.OK
+
+    data = response_get.json()
+    assert data["id"] == user_id
+    assert data["email"] == payload["email"]
+```
 
 ### Интеграционные тесты
 
-Представить код тестов и его пояснение
+Интеграционные тесты проверяют совместную работу нескольких подсистем – пользователей, событий и RSVP–откликов, а также корректность расчёта агрегированной статистики.
+
+Пример интеграционного теста для проверки статистики RSVP по событию:
+
+```python
+from http import HTTPStatus
+from starlette.testclient import TestClient
+
+def create_user(client: TestClient, name: str, email: str) -> int:
+    resp = client.post(
+        "/api/admin/users",
+        json={
+            "name": name,
+            "email": email,
+            "role": "attendee",
+            "status": "active",
+        },
+    )
+    assert resp.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+    return resp.json()["id"]
+
+def test_rsvp_stats_in_events_list(client: TestClient) -> None:
+    user1 = create_user(client, "User 1", "u1@example.com")
+    user2 = create_user(client, "User 2", "u2@example.com")
+    user3 = create_user(client, "User 3", "u3@example.com")
+
+    event_payload = {
+        "name": "Test Event",
+        "description": "Integration test event",
+        "date": "2025-12-31",
+        "time": "18:00:00",
+        "location": "Office",
+        "status": "active",
+        "created_by": user1,
+    }
+    event_resp = client.post("/api/events", json=event_payload)
+    assert event_resp.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+    event_id = event_resp.json()["id"]
+
+    client.post(f"/api/events/{event_id}/rsvp", json={"user_id": user1, "status": "accepted"})
+    client.post(f"/api/events/{event_id}/rsvp", json={"user_id": user2, "status": "pending"})
+    client.post(f"/api/events/{event_id}/rsvp", json={"user_id": user3, "status": "declined"})
+
+    list_resp = client.get("/api/events")
+    assert list_resp.status_code == HTTPStatus.OK
+
+    events = list_resp.json()
+    current = next(e for e in events if e["id"] == event_id)
+
+    assert current["rsvpAccepted"] == 1
+    assert current["rsvpPending"] == 1
+    assert current["rsvpDeclined"] == 1
+```
 
 ---
 
